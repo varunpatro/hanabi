@@ -59,17 +59,8 @@ let init num_players =
   ; num_hint= 0
   ; num_bomb= 0 }
 
-let is_win_state t = Field.is_complete t.field
-
-let is_dead_state t =
-  t.num_bomb >= 3
-  || Card.Map.existsi t.discard ~f:(fun ~key ~data ->
-         List.length data >= Card.Number.count key.number )
-  || List.length t.deck + List.length t.hands + Field.size t.field
-     < List.length Card.all
-
 let transition t action =
-  let left, rem_hands = List.split_n t.hands 0 in
+  let left, rem_hands = List.split_n t.hands 1 in
   let hand = List.hd_exn left in
   match action with
   | Hint (hint, player) ->
@@ -113,3 +104,16 @@ let transition t action =
               in
               let num_bomb = t.num_bomb + 1 in
               {t with hands; deck; discard; num_bomb} ) )
+
+let is_win_state t = Field.is_complete t.field
+
+let is_dead_state t =
+  t.num_bomb >= 3
+  || Card.Map.existsi t.discard ~f:(fun ~key ~data ->
+         List.length data >= Card.Number.count key.number )
+  || List.length t.deck + List.length t.hands + Field.size t.field
+     < List.length Card.all
+
+let rec can_win_state t ~s =
+  is_win_state t
+  || ((not (is_dead_state t)) && can_win_state (transition t (s t)) ~s)
