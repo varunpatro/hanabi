@@ -2,8 +2,7 @@ open Core
 
 module Color = struct
   module T = struct
-    type t = Green | Blue | Red | Yellow | White
-    [@@deriving enumerate, compare, sexp]
+    type t = G | B | R | Y | W [@@deriving enumerate, compare, sexp]
   end
 
   include T
@@ -14,17 +13,17 @@ end
 
 module Number = struct
   module T = struct
-    type t = One | Two | Three | Four | Five
+    type t = N_1 | N_2 | N_3 | N_4 | N_5
     [@@deriving enumerate, compare, sexp]
 
-    let count = function One -> 3 | Two | Three | Four -> 2 | Five -> 1
+    let count = function N_1 -> 3 | N_2 | N_3 | N_4 -> 2 | N_5 -> 1
 
     let to_int = function
-      | One -> 1
-      | Two -> 2
-      | Three -> 3
-      | Four -> 4
-      | Five -> 5
+      | N_1 -> 1
+      | N_2 -> 2
+      | N_3 -> 3
+      | N_4 -> 4
+      | N_5 -> 5
   end
 
   include T
@@ -33,12 +32,11 @@ module Number = struct
 end
 
 module T = struct
-  type t = {color: Color.t; number: Number.t}
-  [@@deriving enumerate, compare, sexp]
+  type t = Color.t * Number.t [@@deriving enumerate, compare, sexp]
 
   let deck =
     List.concat_map all ~f:(fun c ->
-        List.init ~f:(const c) (Number.count c.number) )
+        List.init ~f:(const c) (Number.count (snd c)) )
 
   let random_deck () = List.permute deck
 end

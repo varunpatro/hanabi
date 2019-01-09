@@ -1,7 +1,12 @@
 open! Core
 
 module Field = struct
-  type t = Card.Number.t Card.Color.Map.t
+  type t = Card.Number.t Card.Color.Map.t [@@deriving sexp]
+
+  let format_t fmt s =
+    Caml.Format.pp_print_string fmt (Sexp.to_string_hum @@ sexp_of_t s)
+
+  type card_state = Discardable | Playable_now | Playable_later
 
   let empty = Card.Color.Map.empty
 
@@ -11,16 +16,23 @@ module Field = struct
 
   let is_complete t = size t = 25
 
-  let play_card t (card : Card.t) =
+  let card_state t (card : Card.t) =
     let prev_num =
-      Map.find t card.color
+      Map.find t (fst card)
       |> Option.map ~f:Card.Number.to_int
       |> Option.value ~default:0
     in
-    let cur_num = Card.Number.to_int card.number in
-    if cur_num = prev_num + 1 then
-      Some (Map.update t card.color ~f:(const card.number))
-    else None
+    let cur_num = Card.Number.to_int (snd card) in
+    let diff = cur_num - prev_num in
+    if diff <= 0 then Discardable
+    else if diff = 1 then Playable_now
+    else Playable_later
+
+  let play_card t card =
+    let color, number = card in
+    match card_state t card with
+    | Discardable | Playable_later -> None
+    | Playable_now -> Some (Map.update t color ~f:(const number))
 end
 
 type t =
@@ -30,20 +42,35 @@ type t =
   ; discard: unit list Card.Map.t
   ; num_hint: int
   ; num_bomb: int }
+[@@deriving sexp]
 
 type action =
   | Hint of (Card.Color.t, Card.Number.t) Either.t * int
   | Discard of int
   | Play of int
+[@@deriving sexp]
 
-let num_player_cards = function
-  | `Two -> (2, 5)
-  | `Three -> (3, 5)
-  | `Four -> (4, 4)
-  | `Five -> (5, 4)
+let format_t fmt s =
+  Caml.Format.pp_print_string fmt (Sexp.to_string_hum @@ sexp_of_t s)
 
-let init num_players =
-  let np, nc = num_player_cards num_players in
+let format_to_string t = sprintf !"%{sexp:t}" t
+
+let players_of_int i =
+  match i with
+  | 2 -> `Two
+  | 3 -> `Three
+  | 4 -> `Four
+  | 5 -> `Five
+  | _ -> failwith "invalid player count"
+
+let players_of_string s = Int.of_string s |> players_of_int
+
+let num_players = function `Two -> 2 | `Three -> 3 | `Four -> 4 | `Five -> 5
+
+let num_cards = function `Two | `Three -> 5 | `Four | `Five -> 4
+
+let init players =
+  let np, nc = (num_players players, num_cards players) in
   let deck = Card.random_deck () in
   let rec n_hands n hs deck =
     if n <= 0 then (hs, deck)
@@ -56,7 +83,7 @@ let init num_players =
   ; deck
   ; field= Field.empty
   ; discard= Card.Map.empty
-  ; num_hint= 0
+  ; num_hint= 8
   ; num_bomb= 0 }
 
 let transition t action =
@@ -84,20 +111,31 @@ let transition t action =
       match rest with
       | [] -> failwith "invalid discard index"
       | m :: right ->
-          let new_hand, deck = Hand.draw_card (left @ right) t.deck in
-          let hands = rem_hands @ [new_hand] in
           let discard = Card.Map.add_multi t.discard ~key:m.card ~data:() in
-          let num_hint = max t.num_hint 8 in
+          let num_hint = min (t.num_hint + 1) 8 in
+          let hands, deck =
+            match Hand.draw_card (left @ right) t.deck with
+            | None -> (rem_hands, t.deck)
+            | Some (hand, deck) -> (rem_hands @ [hand], deck)
+          in
           {t with hands; deck; discard; num_hint} )
   | Play i -> (
       let left, rest = List.split_n hand i in
       match rest with
       | [] -> failwith "invalid play index"
       | m :: right -> (
-          let new_hand, deck = Hand.draw_card (left @ right) t.deck in
-          let hands = rem_hands @ [new_hand] in
+          let hands, deck =
+            match Hand.draw_card (left @ right) t.deck with
+            | None -> (rem_hands, t.deck)
+            | Some (hand, deck) -> (rem_hands @ [hand], deck)
+          in
           match Field.play_card t.field m.card with
-          | Some field -> {t with hands; deck; field}
+          | Some field ->
+              let num_hint_extra =
+                if snd m.card = Card.Number.N_5 then 1 else 0
+              in
+              let num_hint = min (t.num_hint + num_hint_extra) 8 in
+              {t with hands; deck; field; num_hint}
           | None ->
               let discard =
                 Card.Map.add_multi t.discard ~key:m.card ~data:()
@@ -110,10 +148,10 @@ let is_win_state t = Field.is_complete t.field
 let is_dead_state t =
   t.num_bomb >= 3
   || Card.Map.existsi t.discard ~f:(fun ~key ~data ->
-         List.length data >= Card.Number.count key.number )
+         List.length data >= Card.Number.count (snd key) )
   || List.length t.deck + List.length t.hands + Field.size t.field
      < List.length Card.all
 
-let rec can_win_state t ~s =
+let rec can_win_state ~s t =
   is_win_state t
-  || ((not (is_dead_state t)) && can_win_state (transition t (s t)) ~s)
+  || ((not (is_dead_state t)) && can_win_state ~s (transition t (s t)))

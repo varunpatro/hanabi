@@ -2,10 +2,7 @@ open! Core
 
 module Member = struct
   module T = struct
-    type t =
-      { card: Card.t
-      ; possible_colors: Card.Color.Set.t
-      ; possible_numbers: Card.Number.Set.t }
+    type t = {card: Card.t; pos_c: Card.Color.Set.t; pos_n: Card.Number.Set.t}
     [@@deriving compare, sexp]
   end
 
@@ -14,13 +11,13 @@ module Member = struct
 end
 
 module T = struct
-  type t = Member.t list
+  type t = Member.t list [@@deriving sexp]
 
   let add_card t (card : Card.t) =
     let m : Member.t =
       { card
-      ; possible_colors= Card.Color.Set.of_list Card.Color.all
-      ; possible_numbers= Card.Number.Set.of_list Card.Number.all }
+      ; pos_c= Card.Color.Set.of_list Card.Color.all
+      ; pos_n= Card.Number.Set.of_list Card.Number.all }
     in
     m :: t
 
@@ -30,13 +27,13 @@ module T = struct
     (hand, rem_deck)
 
   let draw_card t (deck : Card.t list) =
-    match deck with [] -> (t, deck) | c :: cs -> (add_card t c, cs)
+    match deck with [] -> None | c :: cs -> Some (add_card t c, cs)
 
   let is_valid_hint (t : t) hint =
     let count =
       match hint with
-      | First c -> List.count t ~f:(fun m -> m.card.color = c)
-      | Second n -> List.count t ~f:(fun m -> m.card.number = n)
+      | First c -> List.count t ~f:(fun m -> fst m.card = c)
+      | Second n -> List.count t ~f:(fun m -> snd m.card = n)
     in
     count > 0
 
@@ -44,20 +41,14 @@ module T = struct
     match hint with
     | First color ->
         List.map t ~f:(fun m ->
-            if m.card.color = color then
-              {m with possible_colors= Card.Color.Set.singleton color}
-            else
-              { m with
-                possible_colors= Card.Color.Set.remove m.possible_colors color
-              } )
+            if fst m.card = color then
+              {m with pos_c= Card.Color.Set.singleton color}
+            else {m with pos_c= Card.Color.Set.remove m.pos_c color} )
     | Second number ->
         List.map t ~f:(fun m ->
-            if m.card.number = number then
-              {m with possible_numbers= Card.Number.Set.singleton number}
-            else
-              { m with
-                possible_numbers=
-                  Card.Number.Set.remove m.possible_numbers number } )
+            if snd m.card = number then
+              {m with pos_n= Card.Number.Set.singleton number}
+            else {m with pos_n= Card.Number.Set.remove m.pos_n number} )
 end
 
 include T
